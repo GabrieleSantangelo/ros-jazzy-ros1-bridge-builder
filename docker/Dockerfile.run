@@ -1,0 +1,17 @@
+FROM ros:jazzy-ros-base-noble
+
+RUN apt-get update; \
+    apt-get -y install ros-jazzy-desktop; \
+    rm -rf /var/lib/apt/lists/*
+
+
+COPY ros-jazzy-ros1-bridge /ros-jazzy-ros1-bridge
+COPY custom_msgs/custom_msgs_ros2_ws/install /custom_msgs/custom_msgs_ros2_ws/install
+
+RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc; \
+    echo "source /custom_msgs/custom_msgs_ros2_ws/install/local_setup.bash" >> ~/.bashrc; \
+    echo "source /ros-jazzy-ros1-bridge/install/local_setup.bash" >> ~/.bashrc
+
+WORKDIR /workspace
+
+CMD ["bash"]

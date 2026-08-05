@@ -1,0 +1,1 @@
+ros2 run ros1_bridge dynamic_bridge --ros-args -p bridge_all_topics:=true

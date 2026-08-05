@@ -158,6 +158,8 @@ RUN ROS1_LIBS="libactionlib.so";                                                
 # 10.) Spit out ros1_bridge tarball by default when no command is given
 ###########################
 RUN tar czf /ros-jazzy-ros1-bridge.tgz \
-     --exclude '*/build/*' --exclude '*/src/*' /ros-jazzy-ros1-bridge 
+     --exclude '*/build/*' --exclude '*/src/*' \
+     /ros-jazzy-ros1-bridge \
+     /custom_msgs/custom_msgs_ros2_ws/install
 ENTRYPOINT []
 CMD cat /ros-jazzy-ros1-bridge.tgz; sync

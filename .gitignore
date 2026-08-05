@@ -1,1 +1,4 @@
 docker_build.log
+build/
+install/
+log/
