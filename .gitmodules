@@ -1,3 +1,0 @@
-[submodule "custom_msgs"]
-	path = custom_msgs
-	url = https://github.com/Mohamed-Ahmed-Taha/custom_msgs.git
