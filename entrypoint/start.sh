@@ -1,1 +1,3 @@
-ros2 run ros1_bridge dynamic_bridge --ros-args -p bridge_all_topics:=true
+python3 /workspace/entrypoint/tf_static_repeater.py &
+
+ros2 run ros1_bridge dynamic_bridge --bridge-all-topics
