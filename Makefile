@@ -1,7 +1,7 @@
-VERSION := 0.1.0
+VERSION := 0.1.0-tfstatic-test
 CONTAINER_IMAGE := ros-jazzy-ros1-bridge:$(VERSION)
 BUILDER_IMAGE := ros-jazzy-ros1-bridge-builder:$(VERSION)
-CONTAINER_NAME := ros-jazzy-ros1-bridge
+CONTAINER_NAME := ros-jazzy-ros1-bridge-tfstatic-test
 
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 

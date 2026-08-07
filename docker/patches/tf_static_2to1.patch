@@ -1,0 +1,73 @@
+diff --git a/include/ros1_bridge/bridge.hpp b/include/ros1_bridge/bridge.hpp
+index c4d79dfc..4ec4c012 100755
+--- a/include/ros1_bridge/bridge.hpp
++++ b/include/ros1_bridge/bridge.hpp
+@@ -116,6 +116,7 @@ create_bridge_from_2_to_1(
+   const std::string & ros1_type_name,
+   const std::string & ros1_topic_name,
+   size_t publisher_queue_size,
++  bool publisher_latch,
+   rclcpp::PublisherBase::SharedPtr ros2_pub = nullptr);
+
+ BridgeHandles
+diff --git a/src/bridge.cpp b/src/bridge.cpp
+index 2186b1e7..e4ae630b 100755
+--- a/src/bridge.cpp
++++ b/src/bridge.cpp
+@@ -79,6 +79,7 @@ create_bridge_from_2_to_1(
+   rclcpp::PublisherBase::SharedPtr ros2_pub)
+ {
+   auto subscriber_qos = rclcpp::SensorDataQoS(rclcpp::KeepLast(subscriber_queue_size));
++  auto publisher_latch = false;
+   return create_bridge_from_2_to_1(
+     ros2_node,
+     ros1_node,
+@@ -88,6 +89,7 @@ create_bridge_from_2_to_1(
+     ros1_type_name,
+     ros1_topic_name,
+     publisher_queue_size,
++    publisher_latch,
+     ros2_pub);
+ }
+
+@@ -101,11 +103,12 @@ create_bridge_from_2_to_1(
+   const std::string & ros1_type_name,
+   const std::string & ros1_topic_name,
+   size_t publisher_queue_size,
++  bool publisher_latch,
+   rclcpp::PublisherBase::SharedPtr ros2_pub)
+ {
+   auto factory = get_factory(ros1_type_name, ros2_type_name);
+   auto ros1_pub = factory->create_ros1_publisher(
+-    ros1_node, ros1_topic_name, publisher_queue_size);
++    ros1_node, ros1_topic_name, publisher_queue_size, publisher_latch);
+
+   auto ros2_sub = factory->create_ros2_subscriber(
+     ros2_node, ros2_topic_name, subscriber_qos, ros1_pub, ros2_pub);
+diff --git a/src/dynamic_bridge.cpp b/src/dynamic_bridge.cpp
+index 0ecd5264..6a156e40 100644
+--- a/src/dynamic_bridge.cpp
++++ b/src/dynamic_bridge.cpp
+@@ -254,11 +254,20 @@ void update_bridge(
+     bridge.ros1_type_name = ros1_type_name;
+     bridge.ros2_type_name = ros2_type_name;
+
++    auto ros2_subscriber_qos = rclcpp::QoS(rclcpp::KeepLast(10));
++    auto ros_publisher_latch = false;
++    if (topic_name == "/tf_static") {
++      ros2_subscriber_qos.keep_all();
++      ros2_subscriber_qos.transient_local();
++      ros2_subscriber_qos.reliable();
++      ros_publisher_latch = true;
++    }
++
+     try {
+       bridge.bridge_handles = ros1_bridge::create_bridge_from_2_to_1(
+         ros2_node, ros1_node,
+-        bridge.ros2_type_name, topic_name, 10,
+-        bridge.ros1_type_name, topic_name, 10);
++        bridge.ros2_type_name, topic_name, ros2_subscriber_qos,
++        bridge.ros1_type_name, topic_name, 10, ros_publisher_latch);
+     } catch (std::runtime_error & e) {
+       fprintf(
+         stderr,

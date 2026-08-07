@@ -95,6 +95,8 @@ RUN apt-get update; \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 11; \
     rm -rf /var/lib/apt/lists/*
 
+COPY docker/patches/tf_static_2to1.patch /tmp/tf_static_2to1.patch
+
 RUN                                                                                    \
     #-------------------------------------                                             \
     # Get the Bridge code                                                              \
@@ -103,6 +105,11 @@ RUN                                                                             
     cd /ros-jazzy-ros1-bridge/src;                                                     \
     git clone -b action_bridge_humble https://github.com/smith-doug/ros1_bridge.git;   \
     cd ros1_bridge/;                                                                   \
+                                                                                       \
+    #-------------------------------------                                             \
+    # TEST: apply ros2/ros1_bridge#424 (tf_static 2to1 latching), unmerged upstream   \
+    #-------------------------------------                                             \
+    git apply /tmp/tf_static_2to1.patch;                                               \
                                                                                        \
     #-------------------------------------                                             \
     # Apply the ROS1 and ROS2 underlays                                                \
