@@ -1,5 +1,5 @@
 diff --git a/src/dynamic_bridge.cpp b/src/dynamic_bridge.cpp
-index 4371f7a..0c23237 100644
+index 4371f7a..57c1c29 100644
 --- a/src/dynamic_bridge.cpp
 +++ b/src/dynamic_bridge.cpp
 @@ -42,8 +42,18 @@
@@ -68,26 +68,34 @@ index 4371f7a..0c23237 100644
  bool find_command_option(const std::vector<std::string> & args, const std::string & option)
  {
    return std::find(args.begin(), args.end(), option) != args.end();
-@@ -157,6 +207,18 @@ void update_bridge(
+@@ -157,6 +207,26 @@ void update_bridge(
  {
    std::lock_guard<std::mutex> lock(g_bridge_mutex);
  
 +  // If the ROS 1 master was unreachable and just came back (e.g. roscore
-+  // restarted), the aggregator's ROS 1 publisher was advertised against the
-+  // previous master session and was never re-registered on its own. Drop it
-+  // so the /tf_static branch below recreates it fresh against the current
-+  // master.
++  // restarted), every 2to1 bridge's ROS 1 publisher was advertised against
++  // the previous master session and is never re-registered on its own.
++  // 1to2 bridges self-heal already: their existence is keyed off polling
++  // ros1_publishers/ros1_subscribers, which goes empty during the outage,
++  // so they get torn down as obsolete and rebuilt once the topic reappears.
++  // 2to1 bridges are keyed off ros2_publishers instead, which never notices
++  // a ROS 1-only outage, so their stale publishers are never rebuilt on
++  // their own - drop them all here so the loop below recreates every one
++  // fresh against the current master. Same reasoning for the /tf_static
++  // aggregator, which bypasses bridges_2to1 entirely and needs its own
++  // reset.
 +  static bool tf_static_master_was_connected = true;
 +  bool tf_static_master_connected = ros::master::check();
 +  if (tf_static_master_connected && !tf_static_master_was_connected) {
 +    g_tf_static_aggregator.reset();
++    bridges_2to1.clear();
 +  }
 +  tf_static_master_was_connected = tf_static_master_connected;
 +
    // create 1to2 bridges
    for (auto ros1_publisher : ros1_publishers) {
      // identify topics available as ROS 1 publishers as well as ROS 2 subscribers
-@@ -237,6 +299,18 @@ void update_bridge(
+@@ -237,6 +307,18 @@ void update_bridge(
      std::string ros2_type_name = ros2_publisher.second;
      std::string ros1_type_name;
  
