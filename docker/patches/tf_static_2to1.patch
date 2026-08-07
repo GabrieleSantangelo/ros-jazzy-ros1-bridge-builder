@@ -1,5 +1,5 @@
 diff --git a/src/dynamic_bridge.cpp b/src/dynamic_bridge.cpp
-index 4371f7a..c80a937 100644
+index 4371f7a..6a60631 100644
 --- a/src/dynamic_bridge.cpp
 +++ b/src/dynamic_bridge.cpp
 @@ -42,8 +42,18 @@
@@ -95,7 +95,7 @@ index 4371f7a..c80a937 100644
    // create 1to2 bridges
    for (auto ros1_publisher : ros1_publishers) {
      // identify topics available as ROS 1 publishers as well as ROS 2 subscribers
-@@ -237,6 +307,18 @@ void update_bridge(
+@@ -237,8 +307,32 @@ void update_bridge(
      std::string ros2_type_name = ros2_publisher.second;
      std::string ros1_type_name;
  
@@ -112,9 +112,24 @@ index 4371f7a..c80a937 100644
 +    }
 +
      auto ros1_subscriber = ros1_subscribers.find(topic_name);
-     if (ros1_subscriber == ros1_subscribers.end()) {
+-    if (ros1_subscriber == ros1_subscribers.end()) {
++    // A found subscriber with a blank type means ROS 1 hasn't resolved its
++    // type yet (e.g. it just connected and hasn't negotiated with a
++    // publisher). Treating that as good enough created a bridge with a
++    // blank ROS 1 type, which then had to be torn down and recreated
++    // (see below) the moment a real type became known - and that rapid
++    // destroy-then-recreate of the ROS 1 publisher on the same topic name
++    // was observed to leave already-registered ROS 1 subscribers stuck
++    // never receiving data from the new publisher instance, even though
++    // everything looks correctly registered on the master. Falling back to
++    // the static type-mapping table here (same as the "no subscriber yet"
++    // case) avoids ever creating that blank-typed bridge in the first
++    // place, so there is nothing to replace once the real type shows up.
++    if (ros1_subscriber == ros1_subscribers.end() || ros1_subscriber->second.empty()) {
        if (!bridge_all_2to1_topics) {
-@@ -258,7 +340,14 @@ void update_bridge(
+         continue;
+       }
+@@ -258,7 +352,14 @@ void update_bridge(
      // check if 2to1 bridge for the topic exists
      if (bridges_2to1.find(topic_name) != bridges_2to1.end()) {
        auto bridge = bridges_2to1.find(topic_name)->second;
