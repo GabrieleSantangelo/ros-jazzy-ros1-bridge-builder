@@ -107,7 +107,10 @@ RUN                                                                             
     cd ros1_bridge/;                                                                   \
                                                                                        \
     #-------------------------------------                                             \
-    # TEST: apply ros2/ros1_bridge#424 (tf_static 2to1 latching), unmerged upstream   \
+    # TEST: custom fix for /tf_static 2to1 latching (upstream #424 fixes QoS/latch    \
+    # but still drops frames when multiple static broadcasters exist - see commit    \
+    # message for the full writeup). This aggregates transforms by child_frame_id    \
+    # instead of naively forwarding each message through the shared latch.           \
     #-------------------------------------                                             \
     git apply /tmp/tf_static_2to1.patch;                                               \
                                                                                        \

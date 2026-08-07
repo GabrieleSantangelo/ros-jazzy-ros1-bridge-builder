@@ -1,73 +1,82 @@
-diff --git a/include/ros1_bridge/bridge.hpp b/include/ros1_bridge/bridge.hpp
-index c4d79dfc..4ec4c012 100755
---- a/include/ros1_bridge/bridge.hpp
-+++ b/include/ros1_bridge/bridge.hpp
-@@ -116,6 +116,7 @@ create_bridge_from_2_to_1(
-   const std::string & ros1_type_name,
-   const std::string & ros1_topic_name,
-   size_t publisher_queue_size,
-+  bool publisher_latch,
-   rclcpp::PublisherBase::SharedPtr ros2_pub = nullptr);
-
- BridgeHandles
-diff --git a/src/bridge.cpp b/src/bridge.cpp
-index 2186b1e7..e4ae630b 100755
---- a/src/bridge.cpp
-+++ b/src/bridge.cpp
-@@ -79,6 +79,7 @@ create_bridge_from_2_to_1(
-   rclcpp::PublisherBase::SharedPtr ros2_pub)
- {
-   auto subscriber_qos = rclcpp::SensorDataQoS(rclcpp::KeepLast(subscriber_queue_size));
-+  auto publisher_latch = false;
-   return create_bridge_from_2_to_1(
-     ros2_node,
-     ros1_node,
-@@ -88,6 +89,7 @@ create_bridge_from_2_to_1(
-     ros1_type_name,
-     ros1_topic_name,
-     publisher_queue_size,
-+    publisher_latch,
-     ros2_pub);
- }
-
-@@ -101,11 +103,12 @@ create_bridge_from_2_to_1(
-   const std::string & ros1_type_name,
-   const std::string & ros1_topic_name,
-   size_t publisher_queue_size,
-+  bool publisher_latch,
-   rclcpp::PublisherBase::SharedPtr ros2_pub)
- {
-   auto factory = get_factory(ros1_type_name, ros2_type_name);
-   auto ros1_pub = factory->create_ros1_publisher(
--    ros1_node, ros1_topic_name, publisher_queue_size);
-+    ros1_node, ros1_topic_name, publisher_queue_size, publisher_latch);
-
-   auto ros2_sub = factory->create_ros2_subscriber(
-     ros2_node, ros2_topic_name, subscriber_qos, ros1_pub, ros2_pub);
 diff --git a/src/dynamic_bridge.cpp b/src/dynamic_bridge.cpp
-index 0ecd5264..6a156e40 100644
+index 4371f7a..e524051 100644
 --- a/src/dynamic_bridge.cpp
 +++ b/src/dynamic_bridge.cpp
-@@ -254,11 +254,20 @@ void update_bridge(
-     bridge.ros1_type_name = ros1_type_name;
-     bridge.ros2_type_name = ros2_type_name;
-
-+    auto ros2_subscriber_qos = rclcpp::QoS(rclcpp::KeepLast(10));
-+    auto ros_publisher_latch = false;
+@@ -42,6 +42,10 @@
+ #include "ros1_bridge/bridge.hpp"
+ #include "ros1_bridge/action_factory.hpp"
+ 
++#include "tf2_msgs/TFMessage.h"
++#include "tf2_msgs/msg/tf_message.hpp"
++#include "tf2_msgs_factories.hpp"
++
+ 
+ std::mutex g_bridge_mutex;
+ 
+@@ -59,6 +63,46 @@ struct Bridge2to1HandlesAndMessageTypes
+   std::string ros2_type_name;
+ };
+ 
++// /tf_static is bridged from several independent ROS 2 publishers (one per
++// static broadcaster). The generic 2to1 bridge forwards each incoming
++// message through a single latched ROS 1 publisher, so each publish()
++// overwrites the previous one in the latch cache and late ROS 1 subscribers
++// only ever see whichever source published last. This aggregates every
++// transform ever seen, keyed by child_frame_id, and republishes the full
++// merged set on every update so the latch always holds the complete tree.
++class TFStaticAggregator
++{
++public:
++  TFStaticAggregator(rclcpp::Node::SharedPtr ros2_node, ros::Publisher ros1_pub)
++  : ros1_pub_(ros1_pub)
++  {
++    auto qos = rclcpp::QoS(rclcpp::KeepLast(100));
++    qos.keep_all();
++    qos.transient_local();
++    qos.reliable();
++    sub_ = ros2_node->create_subscription<tf2_msgs::msg::TFMessage>(
++      "/tf_static", qos,
++      [this](tf2_msgs::msg::TFMessage::SharedPtr msg) {
++        for (const auto & t : msg->transforms) {
++          transforms_[t.child_frame_id] = t;
++        }
++        tf2_msgs::msg::TFMessage merged;
++        for (const auto & kv : transforms_) {
++          merged.transforms.push_back(kv.second);
++        }
++        tf2_msgs::TFMessage ros1_msg;
++        ros1_bridge::Factory<tf2_msgs::TFMessage, tf2_msgs::msg::TFMessage>::convert_2_to_1(
++          merged, ros1_msg);
++        ros1_pub_.publish(ros1_msg);
++      });
++  }
++
++private:
++  std::map<std::string, geometry_msgs::msg::TransformStamped> transforms_;
++  rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr sub_;
++  ros::Publisher ros1_pub_;
++};
++
+ bool find_command_option(const std::vector<std::string> & args, const std::string & option)
+ {
+   return std::find(args.begin(), args.end(), option) != args.end();
+@@ -237,6 +281,19 @@ void update_bridge(
+     std::string ros2_type_name = ros2_publisher.second;
+     std::string ros1_type_name;
+ 
 +    if (topic_name == "/tf_static") {
-+      ros2_subscriber_qos.keep_all();
-+      ros2_subscriber_qos.transient_local();
-+      ros2_subscriber_qos.reliable();
-+      ros_publisher_latch = true;
++      static std::shared_ptr<TFStaticAggregator> tf_static_aggregator;
++      if (!tf_static_aggregator) {
++        auto ros1_pub = ros1_node.advertise<tf2_msgs::TFMessage>(topic_name, 10, true /* latch */);
++        tf_static_aggregator = std::make_shared<TFStaticAggregator>(ros2_node, ros1_pub);
++        printf(
++          "created 2to1 bridge for topic '%s' with ROS 2 type '%s' and ROS 1 type "
++          "'tf2_msgs/TFMessage' (aggregating static transforms across publishers)\n",
++          topic_name.c_str(), ros2_type_name.c_str());
++      }
++      continue;
 +    }
 +
-     try {
-       bridge.bridge_handles = ros1_bridge::create_bridge_from_2_to_1(
-         ros2_node, ros1_node,
--        bridge.ros2_type_name, topic_name, 10,
--        bridge.ros1_type_name, topic_name, 10);
-+        bridge.ros2_type_name, topic_name, ros2_subscriber_qos,
-+        bridge.ros1_type_name, topic_name, 10, ros_publisher_latch);
-     } catch (std::runtime_error & e) {
-       fprintf(
-         stderr,
+     auto ros1_subscriber = ros1_subscribers.find(topic_name);
+     if (ros1_subscriber == ros1_subscribers.end()) {
+       if (!bridge_all_2to1_topics) {
