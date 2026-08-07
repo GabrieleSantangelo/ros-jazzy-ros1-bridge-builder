@@ -1,5 +1,5 @@
 diff --git a/src/dynamic_bridge.cpp b/src/dynamic_bridge.cpp
-index 4371f7a..57c1c29 100644
+index 4371f7a..c80a937 100644
 --- a/src/dynamic_bridge.cpp
 +++ b/src/dynamic_bridge.cpp
 @@ -42,8 +42,18 @@
@@ -114,3 +114,19 @@ index 4371f7a..57c1c29 100644
      auto ros1_subscriber = ros1_subscribers.find(topic_name);
      if (ros1_subscriber == ros1_subscribers.end()) {
        if (!bridge_all_2to1_topics) {
+@@ -258,7 +340,14 @@ void update_bridge(
+     // check if 2to1 bridge for the topic exists
+     if (bridges_2to1.find(topic_name) != bridges_2to1.end()) {
+       auto bridge = bridges_2to1.find(topic_name)->second;
+-      if ((bridge.ros1_type_name == ros1_type_name || bridge.ros1_type_name == "") &&
++      // NOTE: a blank cached ros1_type_name is deliberately NOT treated as a
++      // wildcard match here (unlike upstream). A blank type means the ROS 1
++      // side hadn't resolved its type yet when this bridge was created (e.g.
++      // a subscriber connects right as roscore restarts, before type
++      // negotiation completes) - treating that as "already correct forever"
++      // permanently stuck the bridge broken with no data flowing, since it
++      // never got a chance to be recreated once a real type became known.
++      if (bridge.ros1_type_name == ros1_type_name &&
+         bridge.ros2_type_name == ros2_type_name)
+       {
+         // skip if bridge with correct types is already in place
