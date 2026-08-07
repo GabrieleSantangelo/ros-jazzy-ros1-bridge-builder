@@ -1,8 +1,8 @@
 diff --git a/src/dynamic_bridge.cpp b/src/dynamic_bridge.cpp
-index 4371f7a..e524051 100644
+index 4371f7a..0c23237 100644
 --- a/src/dynamic_bridge.cpp
 +++ b/src/dynamic_bridge.cpp
-@@ -42,6 +42,10 @@
+@@ -42,8 +42,18 @@
  #include "ros1_bridge/bridge.hpp"
  #include "ros1_bridge/action_factory.hpp"
  
@@ -12,8 +12,16 @@ index 4371f7a..e524051 100644
 +
  
  std::mutex g_bridge_mutex;
++class TFStaticAggregator;
++// Global (not function-local static) so it can be dropped from outside the
++// per-topic loop when the ROS 1 master connection is lost and restored
++// (e.g. roscore restarted): the old ros1_pub_ was advertised against the
++// previous master session and is never re-registered on its own.
++std::shared_ptr<TFStaticAggregator> g_tf_static_aggregator;
  
-@@ -59,6 +63,46 @@ struct Bridge2to1HandlesAndMessageTypes
+ struct Bridge1to2HandlesAndMessageTypes
+ {
+@@ -59,6 +69,46 @@ struct Bridge2to1HandlesAndMessageTypes
    std::string ros2_type_name;
  };
  
@@ -60,15 +68,33 @@ index 4371f7a..e524051 100644
  bool find_command_option(const std::vector<std::string> & args, const std::string & option)
  {
    return std::find(args.begin(), args.end(), option) != args.end();
-@@ -237,6 +281,19 @@ void update_bridge(
+@@ -157,6 +207,18 @@ void update_bridge(
+ {
+   std::lock_guard<std::mutex> lock(g_bridge_mutex);
+ 
++  // If the ROS 1 master was unreachable and just came back (e.g. roscore
++  // restarted), the aggregator's ROS 1 publisher was advertised against the
++  // previous master session and was never re-registered on its own. Drop it
++  // so the /tf_static branch below recreates it fresh against the current
++  // master.
++  static bool tf_static_master_was_connected = true;
++  bool tf_static_master_connected = ros::master::check();
++  if (tf_static_master_connected && !tf_static_master_was_connected) {
++    g_tf_static_aggregator.reset();
++  }
++  tf_static_master_was_connected = tf_static_master_connected;
++
+   // create 1to2 bridges
+   for (auto ros1_publisher : ros1_publishers) {
+     // identify topics available as ROS 1 publishers as well as ROS 2 subscribers
+@@ -237,6 +299,18 @@ void update_bridge(
      std::string ros2_type_name = ros2_publisher.second;
      std::string ros1_type_name;
  
 +    if (topic_name == "/tf_static") {
-+      static std::shared_ptr<TFStaticAggregator> tf_static_aggregator;
-+      if (!tf_static_aggregator) {
++      if (!g_tf_static_aggregator) {
 +        auto ros1_pub = ros1_node.advertise<tf2_msgs::TFMessage>(topic_name, 10, true /* latch */);
-+        tf_static_aggregator = std::make_shared<TFStaticAggregator>(ros2_node, ros1_pub);
++        g_tf_static_aggregator = std::make_shared<TFStaticAggregator>(ros2_node, ros1_pub);
 +        printf(
 +          "created 2to1 bridge for topic '%s' with ROS 2 type '%s' and ROS 1 type "
 +          "'tf2_msgs/TFMessage' (aggregating static transforms across publishers)\n",
