@@ -1,7 +1,17 @@
-# Static topic list for `ros1_bridge parameter_bridge`, loaded onto the
-# ROS 1 parameter server by load_ros1_params.py before the bridge starts.
-# Add more entries here as needed -- no rebuild required, just restart
-# the container.
+# Static topic/service list for `ros1_bridge parameter_bridge`, loaded onto
+# the ROS 1 parameter server by load_ros1_params.py before the bridge starts.
+# Add more entries here as needed -- no rebuild required, just restart the
+# container.
+#
+# Two placeholders are resolved by load_ros1_params.py from the environment,
+# which the Makefile fills in:
+#
+#   {ns}            -> $NAMESPACE. Empty collapses the slash, so
+#                      "/{ns}/sensor_measurements/odom" becomes
+#                      "/sensor_measurements/odom".
+#   when: sim_time  -> the entry is kept only if $USE_SIM_TIME is true.
+#
+#   make run NAMESPACE=robot0 USE_SIM_TIME=true
 #
 # NOTE: parameter_bridge only supports *bidirectional* topic bridges (see
 # ros1_bridge/src/parameter_bridge.cpp). The "direction" below is enforced
@@ -9,41 +19,44 @@
 # flows ROS2->ROS1 because nothing publishes it on the ROS1 side, not
 # because the bridge enforces it.
 topics:
-  # /clock: ROS2 -> ROS1
+  # /clock: ROS2 -> ROS1. Only bridged with USE_SIM_TIME=true: a ROS 1 side
+  # on wall time must not get a simulated clock, and one on sim time is dead
+  # without it.
   - topic: /clock
     type: rosgraph_msgs/msg/Clock
     queue_size: 10
+    when: sim_time
 
-  # /tf: ROS2 <-> ROS1
+  # /tf: ROS2 <-> ROS1. Global, never namespaced, always bridged.
   - topic: /tf
     type: tf2_msgs/msg/TFMessage
     queue_size: 100
 
-  # /tf_static: ROS2 <-> ROS1
-  # Relies on tf_static_repeater.py (run alongside this bridge) to merge
-  # transforms from every ROS2 static publisher before they hit the
-  # 2-to-1 direction -- see the comment in that script for why.
+  # /tf_static: ROS2 <-> ROS1. Same, plus it relies on tf_static_repeater.py
+  # (run alongside this bridge) to merge transforms from every ROS2 static
+  # publisher before they hit the 2-to-1 direction -- see the comment in that
+  # script for why.
   - topic: /tf_static
     type: tf2_msgs/msg/TFMessage
     queue_size: 100
 
-  # /robot0/sensor_measurements/lidar/points: ROS2 -> ROS1
-  - topic: /robot0/sensor_measurements/lidar/points
+  # /{ns}/sensor_measurements/lidar/points: ROS2 -> ROS1
+  - topic: /{ns}/sensor_measurements/lidar/points
     type: sensor_msgs/msg/PointCloud2
     queue_size: 10
 
-  # /robot0/sensor_measurements/odom: ROS2 -> ROS1
-  - topic: /robot0/sensor_measurements/odom
+  # /{ns}/sensor_measurements/odom: ROS2 -> ROS1
+  - topic: /{ns}/sensor_measurements/odom
     type: nav_msgs/msg/Odometry
     queue_size: 10
 
-  # /robot0/command/trajectory: ROS1 -> ROS2
-  - topic: /robot0/command/trajectory
+  # /{ns}/command/trajectory: ROS1 -> ROS2
+  - topic: /{ns}/command/trajectory
     type: trajectory_msgs/msg/MultiDOFJointTrajectory
     queue_size: 10
 
 # All 4 services below are hosted natively by the ROS 1 node
-# /robot0/pci_general_ros_node (confirmed via `rosservice info`), so they
+# /{ns}/pci_general_ros_node (confirmed via `rosservice info`), so they
 # belong under services_2_to_1: per ros1_bridge/include/ros1_bridge/factory.hpp,
 # service_bridge_2_to_1() creates a ROS 2 *server* (proxy) backed by a ROS 1
 # *client* -- i.e. it makes an existing ROS 1 server callable from ROS 2.
@@ -64,16 +77,16 @@ topics:
 #       planner_msgs/srv/PciInitialization
 # ("planner_msgs/srv/pci_initialization" is rejected as an invalid type.)
 services_2_to_1:
-  - service: /robot0/planner_control_interface/std_srvs/automatic_planning
+  - service: /{ns}/planner_control_interface/std_srvs/automatic_planning
     type: std_srvs/Trigger
 
-  - service: /robot0/pci_initialization_trigger
+  - service: /{ns}/pci_initialization_trigger
     type: planner_msgs/pci_initialization
 
-  - service: /robot0/planner_control_interface/std_srvs/stop
+  - service: /{ns}/planner_control_interface/std_srvs/stop
     type: std_srvs/Trigger
 
-  - service: /robot0/planner_control_interface/std_srvs/single_planning
+  - service: /{ns}/planner_control_interface/std_srvs/single_planning
     type: std_srvs/Trigger
 
 # services_1_to_2:

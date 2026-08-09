@@ -10,6 +10,17 @@
 # server, and start.sh then points parameter_bridge at those parameter names.
 # Adding entries needs no rebuild -- the entrypoint/ directory is bind-mounted
 # by `make run`, so a container restart is enough.
+#
+# Two placeholders are resolved by load_ros1_params.py from the environment,
+# which the Makefile fills in, so one file can serve several robots:
+#
+#   {ns}            -> $NAMESPACE, in any "topic" or "service" name. Empty
+#                      collapses the leftover slash, so
+#                      "/{ns}/sensor_measurements/odom" becomes
+#                      "/sensor_measurements/odom".
+#   when: sim_time  -> the entry is kept only if $USE_SIM_TIME is true.
+#
+#   make run NAMESPACE=robot0 USE_SIM_TIME=true
 
 # ---------------------------------------------------------------------------
 # topics
@@ -24,12 +35,15 @@
 topics:
   # /clock: ROS2 -> ROS1. Required by any ROS 1 node running on
   # use_sim_time:=true, and the topic that deadlocks first if the service
-  # bridge shares an executor with the topic bridge (see start.sh).
+  # bridge shares an executor with the topic bridge (see start.sh). Dropped
+  # entirely with USE_SIM_TIME=false, so a wall-time ROS 1 side is not handed
+  # a simulated clock.
   - topic: /clock
     type: rosgraph_msgs/msg/Clock
     queue_size: 10
+    when: sim_time
 
-  # /tf: ROS2 <-> ROS1
+  # /tf: ROS2 <-> ROS1. Global, never namespaced, always bridged.
   - topic: /tf
     type: tf2_msgs/msg/TFMessage
     queue_size: 100
@@ -44,16 +58,16 @@ topics:
     queue_size: 100
 
   # Sensor data: ROS2 -> ROS1
-  - topic: /robot0/sensor_measurements/lidar/points
+  - topic: /{ns}/sensor_measurements/lidar/points
     type: sensor_msgs/msg/PointCloud2
     queue_size: 10
 
-  - topic: /robot0/sensor_measurements/odom
+  - topic: /{ns}/sensor_measurements/odom
     type: nav_msgs/msg/Odometry
     queue_size: 10
 
   # Commands back out: ROS1 -> ROS2
-  - topic: /robot0/command/trajectory
+  - topic: /{ns}/command/trajectory
     type: trajectory_msgs/msg/MultiDOFJointTrajectory
     queue_size: 10
 
@@ -84,18 +98,18 @@ topics:
 #       planner_msgs/srv/PciInitialization
 # ("planner_msgs/srv/pci_initialization" is rejected as an invalid type.)
 services_2_to_1:
-  - service: /robot0/planner_control_interface/std_srvs/automatic_planning
+  - service: /{ns}/planner_control_interface/std_srvs/automatic_planning
     type: std_srvs/Trigger
 
-  - service: /robot0/planner_control_interface/std_srvs/single_planning
+  - service: /{ns}/planner_control_interface/std_srvs/single_planning
     type: std_srvs/Trigger
 
-  - service: /robot0/planner_control_interface/std_srvs/stop
+  - service: /{ns}/planner_control_interface/std_srvs/stop
     type: std_srvs/Trigger
 
   # Custom type: "pci_initialization" is the .srv filename as it exists in the
   # ROS 1 planner_msgs package, not the ROS 2 PciInitialization spelling.
-  - service: /robot0/pci_initialization_trigger
+  - service: /{ns}/pci_initialization_trigger
     type: planner_msgs/pci_initialization
 
 # services_1_to_2:

@@ -5,6 +5,18 @@ CONTAINER_NAME := ros-jazzy-ros1-bridge-tfstatic-test
 
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
+# Bridge configuration, overridable per run:
+#   make run NAMESPACE=robot0 USE_SIM_TIME=true
+#
+# NAMESPACE replaces the {ns} placeholder in entrypoint/bridge_topics.yaml.
+# Leave it empty to bridge unnamespaced names (/sensor_measurements/odom
+# rather than /robot0/sensor_measurements/odom).
+#
+# USE_SIM_TIME=false drops /clock from the bridge. Keep it true whenever the
+# ROS 1 side runs with use_sim_time, or its nodes will sit on a frozen clock.
+NAMESPACE ?=
+USE_SIM_TIME ?= true
+
 default: help
 build: ## Build release container
 	@echo "Building $(BUILDER_IMAGE) container image..."
@@ -40,6 +52,8 @@ run-dev: ## Run container in development mode
 		--env DISPLAY=$$DISPLAY \
 		--env XAUTHORITY=$$XAUTHORITY \
 		--env SSH_AUTH_SOCK=/ssh-agent \
+		--env BRIDGE_NAMESPACE=$(NAMESPACE) \
+		--env BRIDGE_USE_SIM_TIME=$(USE_SIM_TIME) \
 		--volume "$$SSH_AUTH_SOCK:/ssh-agent" \
 		--volume $(ROOT_DIR):/workspace \
 		--volume $(ROOT_DIR)/.cache/.claude:/root/.claude \
@@ -64,6 +78,8 @@ run: ## Run container in release mode
 		--volume ~/.Xauthority:/root/.Xauthority \
 		--env DISPLAY=$$DISPLAY \
 		--env XAUTHORITY=$$XAUTHORITY \
+		--env BRIDGE_NAMESPACE=$(NAMESPACE) \
+		--env BRIDGE_USE_SIM_TIME=$(USE_SIM_TIME) \
 		$(CONTAINER_IMAGE) \
 		bash -ci "/workspace/entrypoint/start.sh"
 

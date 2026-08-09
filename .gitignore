@@ -7,3 +7,6 @@ custom_msgs_ros2_ws/
 
 # Deployment-specific bridge config -- copy bridge_topics.example.yaml instead.
 entrypoint/bridge_topics.yaml
+
+__pycache__/
+*.pyc
