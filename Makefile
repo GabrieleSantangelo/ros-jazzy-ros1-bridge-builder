@@ -67,6 +67,10 @@ run: ## Run container in release mode
 		$(CONTAINER_IMAGE) \
 		bash -ci "/workspace/entrypoint/start.sh"
 
+enter: ## Enter running container in development mode
+	@echo "Entering $(CONTAINER_IMAGE) container..."
+	@docker exec -it ${CONTAINER_NAME} bash
+
 enter-dev: ## Enter running container in development mode
 	@echo "Entering $(CONTAINER_IMAGE) container..."
 	@docker exec -it ${CONTAINER_NAME}-dev bash

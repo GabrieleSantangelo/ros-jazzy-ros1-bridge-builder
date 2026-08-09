@@ -1,0 +1,103 @@
+# Template for entrypoint/bridge_topics.yaml.
+#
+#   cp entrypoint/bridge_topics.example.yaml entrypoint/bridge_topics.yaml
+#
+# The real bridge_topics.yaml is gitignored because it is specific to whatever
+# robot/stack you are bridging. This file documents the format and keeps the
+# quirks that are easy to get wrong.
+#
+# load_ros1_params.py pushes each top-level key here onto the ROS 1 parameter
+# server, and start.sh then points parameter_bridge at those parameter names.
+# Adding entries needs no rebuild -- the entrypoint/ directory is bind-mounted
+# by `make run`, so a container restart is enough.
+
+# ---------------------------------------------------------------------------
+# topics
+# ---------------------------------------------------------------------------
+# parameter_bridge only supports *bidirectional* topic bridges (see
+# ros1_bridge/src/parameter_bridge.cpp). The direction noted in the comments
+# below is enforced in practice by whichever side actually publishes -- e.g.
+# /clock only flows ROS2->ROS1 because nothing publishes it on the ROS 1 side,
+# not because the bridge restricts it.
+#
+# "type" is the ROS 2-style name here: "pkg/msg/MsgName".
+topics:
+  # /clock: ROS2 -> ROS1. Required by any ROS 1 node running on
+  # use_sim_time:=true, and the topic that deadlocks first if the service
+  # bridge shares an executor with the topic bridge (see start.sh).
+  - topic: /clock
+    type: rosgraph_msgs/msg/Clock
+    queue_size: 10
+
+  # /tf: ROS2 <-> ROS1
+  - topic: /tf
+    type: tf2_msgs/msg/TFMessage
+    queue_size: 100
+
+  # /tf_static: ROS2 <-> ROS1
+  # Relies on tf_static_repeater.py (started by start.sh) to merge transforms
+  # from every ROS 2 static broadcaster into one latched message before they
+  # reach the 2-to-1 direction -- see the comment in that script for why a
+  # plain bridge drops all but the last publisher's frames.
+  - topic: /tf_static
+    type: tf2_msgs/msg/TFMessage
+    queue_size: 100
+
+  # Sensor data: ROS2 -> ROS1
+  - topic: /robot0/sensor_measurements/lidar/points
+    type: sensor_msgs/msg/PointCloud2
+    queue_size: 10
+
+  - topic: /robot0/sensor_measurements/odom
+    type: nav_msgs/msg/Odometry
+    queue_size: 10
+
+  # Commands back out: ROS1 -> ROS2
+  - topic: /robot0/command/trajectory
+    type: trajectory_msgs/msg/MultiDOFJointTrajectory
+    queue_size: 10
+
+# ---------------------------------------------------------------------------
+# services
+# ---------------------------------------------------------------------------
+# Direction is *not* a matter of taste here, unlike topics --
+# ros1_bridge/include/ros1_bridge/factory.hpp defines:
+#
+#   services_2_to_1 -> ROS 2 server proxy + ROS 1 client.
+#                      Use when the real server lives on ROS 1 and you want to
+#                      call it from ROS 2.
+#   services_1_to_2 -> ROS 1 server proxy + ROS 2 client.
+#                      Use when the real server lives on ROS 2.
+#
+# Picking the wrong one creates a proxy with nothing behind it, and the caller
+# blocks forever.
+#
+# NOTE on "type" format: services_2_to_1 resolves the factory with
+# ros_id == "ros1", which matches the ROS 1-style string "pkg/TypeName" -- no
+# "srv/" in the middle, and the exact ROS 1 casing (for custom types, the
+# literal .srv filename). services_1_to_2 is the opposite and wants the ROS
+# 2-style "pkg/srv/SrvName".
+#
+# The ROS 2 *client* always uses the ROS 2 name of the type, which for custom
+# types is the CamelCase name rosidl derives from the .srv filename:
+#   ros2 service call /robot0/pci_initialization_trigger \
+#       planner_msgs/srv/PciInitialization
+# ("planner_msgs/srv/pci_initialization" is rejected as an invalid type.)
+services_2_to_1:
+  - service: /robot0/planner_control_interface/std_srvs/automatic_planning
+    type: std_srvs/Trigger
+
+  - service: /robot0/planner_control_interface/std_srvs/single_planning
+    type: std_srvs/Trigger
+
+  - service: /robot0/planner_control_interface/std_srvs/stop
+    type: std_srvs/Trigger
+
+  # Custom type: "pci_initialization" is the .srv filename as it exists in the
+  # ROS 1 planner_msgs package, not the ROS 2 PciInitialization spelling.
+  - service: /robot0/pci_initialization_trigger
+    type: planner_msgs/pci_initialization
+
+# services_1_to_2:
+#   - service: /service_name
+#     type: pkgname/srv/SrvName

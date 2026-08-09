@@ -24,7 +24,16 @@ class TFStaticRepeater(Node):
         )
         self.create_subscription(TFMessage, '/tf_static', self._on_tf_static, sub_qos)
 
-        pub_qos = QoSProfile(depth=100, history=HistoryPolicy.KEEP_LAST)
+        # transient_local: matches what every tf2_ros::TransformListener expects
+        # on /tf_static, avoiding a DURABILITY_QOS_POLICY mismatch warning on
+        # every node in the graph. depth=1 since each publish is already the
+        # full merged set, so only the latest sample matters to late joiners.
+        pub_qos = QoSProfile(
+            depth=1,
+            history=HistoryPolicy.KEEP_LAST,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
         self._pub = self.create_publisher(TFMessage, '/tf_static', pub_qos)
 
         self.create_timer(1.0, self._republish)
