@@ -6,7 +6,7 @@ CONTAINER_NAME := ros-jazzy-ros1-bridge-tfstatic-test
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 # Bridge configuration, overridable per run:
-#   make run NAMESPACE=robot0 USE_SIM_TIME=true
+#   make run NAMESPACE=robot0 USE_SIM_TIME=true ROS_MASTER_URI=http://localhost:11311
 #
 # NAMESPACE replaces the {ns} placeholder in entrypoint/bridge_topics.yaml.
 # Leave it empty to bridge unnamespaced names (/sensor_measurements/odom
@@ -14,8 +14,18 @@ ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 #
 # USE_SIM_TIME=false drops /clock from the bridge. Keep it true whenever the
 # ROS 1 side runs with use_sim_time, or its nodes will sit on a frozen clock.
+#
+# ROS_MASTER_URI picks which roscore this bridge attaches to, so one bridge
+# instance per robot can run side by side, each against that robot's own
+# master:
+#   make run NAMESPACE=robot0 ROS_MASTER_URI=http://localhost:11311
+#   make run NAMESPACE=robot1 ROS_MASTER_URI=http://localhost:11312
+# The container runs with --net host, so "localhost" is the host's. A master
+# on another machine also needs ROS_IP set to an address that machine can
+# reach back on, or its nodes will fail to connect to the bridge.
 NAMESPACE ?=
 USE_SIM_TIME ?= true
+ROS_MASTER_URI ?= http://localhost:11311
 
 default: help
 build: ## Build release container
@@ -54,6 +64,7 @@ run-dev: ## Run container in development mode
 		--env SSH_AUTH_SOCK=/ssh-agent \
 		--env BRIDGE_NAMESPACE=$(NAMESPACE) \
 		--env BRIDGE_USE_SIM_TIME=$(USE_SIM_TIME) \
+		--env ROS_MASTER_URI=$(ROS_MASTER_URI) \
 		--volume "$$SSH_AUTH_SOCK:/ssh-agent" \
 		--volume $(ROOT_DIR):/workspace \
 		--volume $(ROOT_DIR)/.cache/.claude:/root/.claude \
@@ -80,6 +91,7 @@ run: ## Run container in release mode
 		--env XAUTHORITY=$$XAUTHORITY \
 		--env BRIDGE_NAMESPACE=$(NAMESPACE) \
 		--env BRIDGE_USE_SIM_TIME=$(USE_SIM_TIME) \
+		--env ROS_MASTER_URI=$(ROS_MASTER_URI) \
 		$(CONTAINER_IMAGE) \
 		bash -ci "/workspace/entrypoint/start.sh"
 

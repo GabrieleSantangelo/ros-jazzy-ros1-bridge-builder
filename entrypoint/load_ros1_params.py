@@ -97,11 +97,14 @@ def main():
 
     namespace = os.environ.get("BRIDGE_NAMESPACE", "").strip().strip("/")
     use_sim_time = env_flag("BRIDGE_USE_SIM_TIME", True)
-    print(f"namespace: {namespace or '<none>'}, use_sim_time: {use_sim_time}")
+    master_uri = os.environ.get("ROS_MASTER_URI", "http://localhost:11311")
+    print(
+        f"namespace: {namespace or '<none>'}, use_sim_time: {use_sim_time}, "
+        f"master: {master_uri}"
+    )
 
     config = resolve(config, namespace, use_sim_time)
 
-    master_uri = os.environ.get("ROS_MASTER_URI", "http://localhost:11311")
     master = xmlrpc.client.ServerProxy(master_uri)
 
     while True:
