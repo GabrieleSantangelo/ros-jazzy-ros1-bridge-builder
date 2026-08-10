@@ -55,8 +55,15 @@ topics:
     type: trajectory_msgs/msg/MultiDOFJointTrajectory
     queue_size: 10
 
-# All 4 services below are hosted natively by the ROS 1 node
-# /{ns}/pci_general_ros_node (confirmed via `rosservice info`), so they
+  # /{ns}/move_base_simple/goal: ROS2 -> ROS1. Waypoint goal consumed by the
+  # ROS 1 gbplanner pci node (same topic RViz's "2D Nav Goal" publishes on).
+  - topic: /{ns}/move_base_simple/goal
+    type: geometry_msgs/msg/PoseStamped
+    queue_size: 10
+
+# Every service below is hosted natively on the ROS 1 side -- the first four
+# by /{ns}/pci_general_ros_node, the two gbplanner ones by the gbplanner node
+# (confirmed via `rosservice info`), so they
 # belong under services_2_to_1: per ros1_bridge/include/ros1_bridge/factory.hpp,
 # service_bridge_2_to_1() creates a ROS 2 *server* (proxy) backed by a ROS 1
 # *client* -- i.e. it makes an existing ROS 1 server callable from ROS 2.
@@ -88,6 +95,13 @@ services_2_to_1:
 
   - service: /{ns}/planner_control_interface/std_srvs/single_planning
     type: std_srvs/Trigger
+
+  # ROS 2 client side: planner_msgs/srv/PlannerGoToWaypoint
+  - service: /{ns}/gbplanner/go_to_waypoint
+    type: planner_msgs/planner_go_to_waypoint
+
+  - service: /{ns}/gbplanner/switch_operation_mode
+    type: std_srvs/SetBool
 
 # services_1_to_2:
 #   - service: /service_name
