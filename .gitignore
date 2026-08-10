@@ -3,7 +3,14 @@ build/
 install/
 log/
 custom_msgs_ros1_ws/
-custom_msgs_ros2_ws/
+
+# The ros2 workspace only tracks the planner_msgs submodule; every other
+# package dropped in there is deployment-specific.
+custom_msgs/custom_msgs_ros2_ws/*
+!custom_msgs/custom_msgs_ros2_ws/src/
+custom_msgs/custom_msgs_ros2_ws/src/*
+!custom_msgs/custom_msgs_ros2_ws/src/.gitkeep
+!custom_msgs/custom_msgs_ros2_ws/src/planner_msgs
 
 # Deployment-specific bridge config -- copy bridge_topics.example.yaml instead.
 entrypoint/bridge_topics.yaml
