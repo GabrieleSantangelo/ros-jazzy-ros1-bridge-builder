@@ -61,6 +61,82 @@ topics:
     type: geometry_msgs/msg/PoseStamped
     queue_size: 10
 
+  # ---------------------------------------------------------------------------
+  # Planner visualisation: ROS1 -> ROS2.
+  #
+  # Everything gbplanner draws lives on its own ROS 1 master, so RViz inside the
+  # planner container is the only place it can be seen -- and only for the one
+  # robot that container belongs to. Bridging these puts every robot's planning
+  # state into the single ROS 2 graph, where one Foxglove or RViz 2 session
+  # shows the whole fleet at once.
+  #
+  # Cost, before adding more: gbplanner's visualiser is lazy, every publisher is
+  # guarded by `if (pub.getNumSubscribers() < 1) return;`. A bridged topic has
+  # the bridge as a permanent subscriber, so those markers are now built on
+  # every planning iteration whether or not anyone is looking. Keep this list to
+  # what you actually watch.
+  #
+  # All standard message types -- no custom package is involved, so none of this
+  # needs the bridge image rebuilt. Editing this file and restarting the bridge
+  # container is enough.
+
+  # The path the planner settled on, and the b-spline actually commanded.
+  # Both plain nav_msgs/Path, so they can be logged or replayed without
+  # unpacking markers; comparing the two shows the smoothing error.
+  - topic: /{ns}/gbplanner_path
+    type: nav_msgs/msg/Path
+    queue_size: 10
+
+  - topic: /{ns}/command_traj_vis
+    type: nav_msgs/msg/Path
+    queue_size: 10
+
+  # The reference path: ns "ref_path" is the magenta LINE_LIST, ns "vertices"
+  # the spheres between waypoints. What appears once automatic_planning runs.
+  - topic: /{ns}/vis/ref_path
+    type: visualization_msgs/msg/MarkerArray
+    queue_size: 10
+
+  # The local RRG the path was chosen from -- the "why" behind ref_path.
+  - topic: /{ns}/vis/planning_graph
+    type: visualization_msgs/msg/MarkerArray
+    queue_size: 10
+
+  # Global path towards the frontier the planner is heading for.
+  - topic: /{ns}/vis/planning_global_path
+    type: visualization_msgs/msg/MarkerArray
+    queue_size: 10
+
+  # Markers at the vertices where planning failed. Published only on a failure,
+  # so it costs nothing while things work.
+  - topic: /{ns}/vis/planning_failed
+    type: visualization_msgs/msg/MarkerArray
+    queue_size: 10
+
+  # The local navigation goal the planner is currently driving at.
+  - topic: /{ns}/gbplanner/local_target_viz
+    type: geometry_msgs/msg/PointStamped
+    queue_size: 10
+
+  # Left out on purpose, all visualization_msgs/msg/MarkerArray -- uncomment
+  # what you need, no rebuild required:
+  #
+  #   vis/best_planning_paths   the candidates ref_path was chosen from
+  #   vis/volumetric_gains      per-viewpoint exploration gain (bound cube +
+  #                             the unknown voxels it would clear). The most
+  #                             informative display there is, and the most
+  #                             expensive to keep subscribed
+  #   vis/state_history         everywhere the robot has been; reveals loops
+  #   vis/sampler               valid/invalid samples, for a starved sampler
+  #   vis/planning_global_graph the global graph; a fog of vertices once big
+  #
+  # NOT bridgeable: gbplanner_node/mesh is voxblox_msgs/Mesh, and the bridge
+  # only carries conversion factories for the standard packages plus
+  # planner_msgs. Adding voxblox_msgs means putting it in the builder's
+  # custom_msgs workspaces and rebuilding the image. Use
+  # gbplanner_node/surface_pointcloud (sensor_msgs/msg/PointCloud2) instead if
+  # the map itself is wanted on the ROS 2 side -- at the bandwidth that implies.
+
 # Every service below is hosted natively on the ROS 1 side -- the first four
 # by /{ns}/pci_general_ros_node, the two gbplanner ones by the gbplanner node
 # (confirmed via `rosservice info`), so they
