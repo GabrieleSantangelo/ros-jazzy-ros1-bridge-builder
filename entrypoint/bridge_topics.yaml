@@ -179,6 +179,10 @@ services_2_to_1:
   - service: /{ns}/gbplanner/switch_operation_mode
     type: std_srvs/SetBool
 
+  # ROS 2 client side: planner_msgs/srv/PlannerGetFrontiers
+  - service: /{ns}/gbplanner/get_frontiers
+    type: planner_msgs/planner_get_frontiers
+
 # services_1_to_2:
 #   - service: /service_name
 #     type: pkgname/srv/SrvName
