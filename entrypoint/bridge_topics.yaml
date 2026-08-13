@@ -183,6 +183,10 @@ services_2_to_1:
   - service: /{ns}/gbplanner/get_frontiers
     type: planner_msgs/planner_get_frontiers
 
+  # ROS 2 client side: planner_msgs/srv/PlannerGetTargetCosts
+  - service: /{ns}/gbplanner/get_target_costs
+    type: planner_msgs/planner_get_target_costs
+
 # services_1_to_2:
 #   - service: /service_name
 #     type: pkgname/srv/SrvName
