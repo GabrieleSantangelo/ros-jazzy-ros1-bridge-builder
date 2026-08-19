@@ -54,7 +54,20 @@ fi
 
 # parameter_bridge reads its config from the ROS 1 parameter server, not from
 # a file, so the YAML has to be pushed there first.
-python3 "${ENTRYPOINT_DIR}/load_ros1_params.py" "${CONFIG}"
+#
+# --remap-dir is where the loader drops the ROS 1 renames, if the config asks
+# for any. They exist because parameter_bridge builds both ends of a bridge
+# from a single name, so a ROS 1 stack answering on /anymal/... can only reach
+# ROS 2 as /anymal/... too. A ROS 1 static remap on the command line fixes the
+# ROS 1 end alone: ros::init() consumes every "a:=b" token out of argv before
+# rclcpp::init() runs, leaving the ROS 2 side on the name from the YAML. The
+# loader writes one "<ros2_name>:=<ros1_name>" per line, split by which of the
+# two processes below needs it, and writes both files even when empty.
+REMAP_DIR="$(mktemp -d)"
+python3 "${ENTRYPOINT_DIR}/load_ros1_params.py" "${CONFIG}" --remap-dir "${REMAP_DIR}"
+
+mapfile -t TOPIC_REMAPS < "${REMAP_DIR}/topics.remaps"
+mapfile -t SERVICE_REMAPS < "${REMAP_DIR}/services.remaps"
 
 # parameter_bridge's 3 positional arguments are the *names of the ROS 1
 # parameters* it should read, in order: topics, services_1_to_2,
@@ -69,11 +82,11 @@ python3 "${ENTRYPOINT_DIR}/load_ros1_params.py" "${CONFIG}"
 # would leave a dangling `-r` and abort rcl argument parsing.
 ros2 run ros1_bridge parameter_bridge \
     no_topics services_1_to_2 services_2_to_1 \
-    __name:=ros_bridge_services &
+    __name:=ros_bridge_services "${SERVICE_REMAPS[@]}" &
 SERVICES_PID=$!
 
 ros2 run ros1_bridge parameter_bridge \
-    topics no_services_1_to_2 no_services_2_to_1 &
+    topics no_services_1_to_2 no_services_2_to_1 "${TOPIC_REMAPS[@]}" &
 TOPICS_PID=$!
 
 # Exit as soon as either bridge dies instead of leaving a half-working

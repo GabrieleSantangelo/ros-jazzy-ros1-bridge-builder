@@ -11,16 +11,35 @@
 # Adding entries needs no rebuild -- the entrypoint/ directory is bind-mounted
 # by `make run`, so a container restart is enough.
 #
-# Two placeholders are resolved by load_ros1_params.py from the environment,
-# which the Makefile fills in, so one file can serve several robots:
+# Placeholders are resolved by load_ros1_params.py from the environment, which
+# the Makefile fills in, so one file can serve several robots:
 #
 #   {ns}            -> $NAMESPACE, in any "topic" or "service" name. Empty
 #                      collapses the leftover slash, so
 #                      "/{ns}/sensor_measurements/odom" becomes
 #                      "/sensor_measurements/odom".
+#   {ros1_ns}       -> $BRIDGE_ROS1_NAMESPACE, only in the optional
+#                      "ros1_topic"/"ros1_service" keys below. Defaults to
+#                      $NAMESPACE.
 #   when: sim_time  -> the entry is kept only if $USE_SIM_TIME is true.
 #
 #   make run NAMESPACE=robot0 USE_SIM_TIME=true
+#
+# Different name on each side
+# ---------------------------
+# "topic" and "service" always hold the ROS 2 name. Add "ros1_topic" (or
+# "ros1_service") to give the ROS 1 side a different one:
+#
+#   - topic: /{ns}/gbplanner_path            # ROS 2:  /robot0/gbplanner_path
+#     ros1_topic: /{ros1_ns}/gbplanner_path  # ROS 1:  /anymal/gbplanner_path
+#     type: nav_msgs/msg/Path
+#     queue_size: 10
+#
+# That is what lets a robot keep its native ROS 1 namespace while showing up
+# under a per-robot one in the shared ROS 2 graph. parameter_bridge cannot do
+# it by itself -- it builds both ends from a single name -- so the loader turns
+# the pair into a ROS 1 command line remap, which renames the ROS 1 end only.
+# See the comment at the top of load_ros1_params.py.
 
 # ---------------------------------------------------------------------------
 # topics
