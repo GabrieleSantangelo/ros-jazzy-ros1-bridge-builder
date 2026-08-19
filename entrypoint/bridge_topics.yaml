@@ -1,134 +1,153 @@
-# Static topic/service list for `ros1_bridge parameter_bridge`, loaded onto
-# the ROS 1 parameter server by load_ros1_params.py before the bridge starts.
-# Add more entries here as needed -- no rebuild required, just restart the
-# container.
+# Bridge config for the ANYmal on the real robot (`make run-robot-bridge`).
 #
-# Two placeholders are resolved by load_ros1_params.py from the environment,
-# which the Makefile fills in:
+# The sim layout is NOT this file -- see bridge_topics.example.yaml if you need
+# to go back to `make run-sim` (sensor_measurements/*, /clock, global /tf).
 #
-#   {ns}            -> $NAMESPACE. Empty collapses the slash, so
-#                      "/{ns}/sensor_measurements/odom" becomes
-#                      "/sensor_measurements/odom".
-#   when: sim_time  -> the entry is kept only if $USE_SIM_TIME is true.
+# Two namespaces, on purpose:
 #
-#   make run NAMESPACE=robot0 USE_SIM_TIME=true
+#   ROS 1 (on the robot)   /anymal/...   -> {ros1_ns}, $BRIDGE_ROS1_NAMESPACE,
+#                                          filled from ROBOT_NAME. Unchanged
+#                                          from the gbplanner2 stack, so every
+#                                          existing tool on the robot keeps
+#                                          working.
+#   ROS 2 (fleet graph)    /robot0/...   -> {ns}, $BRIDGE_NAMESPACE, filled
+#                                          from NAMESPACE. One per robot.
 #
-# NOTE: parameter_bridge only supports *bidirectional* topic bridges (see
-# ros1_bridge/src/parameter_bridge.cpp). The "direction" below is enforced
-# in practice by whichever side actually publishes -- e.g. /clock only
-# flows ROS2->ROS1 because nothing publishes it on the ROS1 side, not
-# because the bridge enforces it.
+# "topic"/"service" hold the ROS 2 name; the optional "ros1_topic"/
+# "ros1_service" holds the ROS 1 one. parameter_bridge cannot do this by
+# itself (it builds both ends of a bridge from a single name), so
+# load_ros1_params.py turns the pair into a ROS 1 command line remap, which
+# renames the ROS 1 end only -- see the comment at the top of that script.
+#
+# Nothing here flows ROS 2 -> ROS 1 by design: the planner takes its inputs
+# natively on the robot's own master and is only ever a *server* for ROS 2.
+# parameter_bridge builds every topic bridge bidirectionally anyway (see
+# ros1_bridge/src/parameter_bridge.cpp), so the direction is enforced only by
+# which side actually publishes.
+#
+#   make run-robot-bridge NAMESPACE=robot0 ROBOT_NAME=anymal
 topics:
-  # /clock: ROS2 -> ROS1. Only bridged with USE_SIM_TIME=true: a ROS 1 side
-  # on wall time must not get a simulated clock, and one on sim time is dead
-  # without it.
+  # ---------------------------------------------------------------------------
+  # TF. Same name on both sides, deliberately: no ros1_topic here.
+  #
+  # tf_prefix.launch (make run-robot) leaves the robot's own /tf and /tf_static
+  # alone -- bare frame ids, every node on that master untouched -- and
+  # publishes a second, prefixed stream on /<TF_PREFIX>/tf. TF_PREFIX defaults
+  # to NAMESPACE, i.e. the ROS 2 name: the ROS 1 side already carries
+  # /robot0/tf with frames robot0/world, robot0/body, ... precisely so this
+  # bridge is a straight pass-through.
+  #
+  # On the ROS 2 side tf_fleet_relay.py (started by start.sh with
+  # BRIDGE_TF_FLEET=true) republishes it onto the global /tf and /tf_static
+  # that every tf2 listener reads. Frames stay prefixed, so several robots
+  # share one graph without colliding.
+  - topic: /{ns}/tf
+    type: tf2_msgs/msg/TFMessage
+    queue_size: 100
+
+  # Needs tf_static_pump.py on the ROS 1 side (tf_prefix.launch runs it): the
+  # bridge forwards the latched static set volatile and without history, so a
+  # late ROS 2 subscriber has exactly one instant to catch it. Republishing on
+  # a timer turns that race into convergence.
+  - topic: /{ns}/tf_static
+    type: tf2_msgs/msg/TFMessage
+    queue_size: 100
+
+  # /clock: ROS2 -> ROS1, dropped on the robot. BRIDGE_USE_SIM_TIME=false in
+  # run-robot-bridge, and the robot's ROS 1 side is on wall time -- handing it
+  # a simulated clock is how everything freezes. Kept as an entry only so
+  # replaying against a bagged/simulated master needs no edit here.
   - topic: /clock
     type: rosgraph_msgs/msg/Clock
     queue_size: 10
     when: sim_time
 
-  # /tf: ROS2 <-> ROS1. Global, never namespaced, always bridged.
-  - topic: /tf
-    type: tf2_msgs/msg/TFMessage
-    queue_size: 100
-
-  # /tf_static: ROS2 <-> ROS1. Same, plus it relies on tf_static_repeater.py
-  # (run alongside this bridge) to merge transforms from every ROS2 static
-  # publisher before they hit the 2-to-1 direction -- see the comment in that
-  # script for why.
-  - topic: /tf_static
-    type: tf2_msgs/msg/TFMessage
-    queue_size: 100
-
-  # /{ns}/sensor_measurements/lidar/points: ROS2 -> ROS1
-  - topic: /{ns}/sensor_measurements/lidar/points
-    type: sensor_msgs/msg/PointCloud2
-    queue_size: 10
-
-  # /{ns}/sensor_measurements/odom: ROS2 -> ROS1
-  - topic: /{ns}/sensor_measurements/odom
-    type: nav_msgs/msg/Odometry
-    queue_size: 10
-
-  # /{ns}/command/trajectory: ROS1 -> ROS2
-  - topic: /{ns}/command/trajectory
-    type: trajectory_msgs/msg/MultiDOFJointTrajectory
-    queue_size: 10
-
-  # /{ns}/move_base_simple/goal: ROS2 -> ROS1. Waypoint goal consumed by the
-  # ROS 1 gbplanner pci node (same topic RViz's "2D Nav Goal" publishes on).
-  - topic: /{ns}/move_base_simple/goal
-    type: geometry_msgs/msg/PoseStamped
-    queue_size: 10
-
   # ---------------------------------------------------------------------------
-  # Planner visualisation: ROS1 -> ROS2.
+  # Planner state and visualisation: ROS1 -> ROS2.
   #
-  # Everything gbplanner draws lives on its own ROS 1 master, so RViz inside the
-  # planner container is the only place it can be seen -- and only for the one
-  # robot that container belongs to. Bridging these puts every robot's planning
-  # state into the single ROS 2 graph, where one Foxglove or RViz 2 session
-  # shows the whole fleet at once.
+  # Everything gbplanner draws lives on the robot's own master, so without
+  # these it can only be seen from inside the planner container, one robot at a
+  # time. Bridged, one Foxglove or RViz 2 session shows the whole fleet.
   #
-  # Cost, before adding more: gbplanner's visualiser is lazy, every publisher is
-  # guarded by `if (pub.getNumSubscribers() < 1) return;`. A bridged topic has
-  # the bridge as a permanent subscriber, so those markers are now built on
-  # every planning iteration whether or not anyone is looking. Keep this list to
-  # what you actually watch.
+  # Cost, before adding more: gbplanner's visualiser is lazy, every publisher
+  # is guarded by `if (pub.getNumSubscribers() < 1) return;`. A bridged topic
+  # has the bridge as a permanent subscriber, so those markers get built every
+  # planning iteration whether or not anyone is looking. Keep this list to what
+  # you actually watch.
   #
-  # All standard message types -- no custom package is involved, so none of this
-  # needs the bridge image rebuilt. Editing this file and restarting the bridge
-  # container is enough.
+  # All standard message types -- no custom package involved, so none of this
+  # needs the bridge image rebuilt. Edit and restart the container.
 
-  # The path the planner settled on, and the b-spline actually commanded.
-  # Both plain nav_msgs/Path, so they can be logged or replayed without
-  # unpacking markers; comparing the two shows the smoothing error.
+  # The path the planner settled on. Plain nav_msgs/Path, so it can be logged
+  # or replayed without unpacking markers.
   - topic: /{ns}/gbplanner_path
+    ros1_topic: /{ros1_ns}/gbplanner_path
     type: nav_msgs/msg/Path
     queue_size: 10
 
-  - topic: /{ns}/command_traj_vis
-    type: nav_msgs/msg/Path
+  # Whether the planner is currently running. One bool, published by the PCI --
+  # the cheapest "is this robot alive and planning" signal there is.
+  - topic: /{ns}/gbplanner_status
+    ros1_topic: /{ros1_ns}/gbplanner_status
+    type: std_msgs/msg/Bool
     queue_size: 10
 
   # The reference path: ns "ref_path" is the magenta LINE_LIST, ns "vertices"
   # the spheres between waypoints. What appears once automatic_planning runs.
   - topic: /{ns}/vis/ref_path
+    ros1_topic: /{ros1_ns}/vis/ref_path
     type: visualization_msgs/msg/MarkerArray
     queue_size: 10
 
   # The local RRG the path was chosen from -- the "why" behind ref_path.
   - topic: /{ns}/vis/planning_graph
+    ros1_topic: /{ros1_ns}/vis/planning_graph
     type: visualization_msgs/msg/MarkerArray
     queue_size: 10
 
   # Global path towards the frontier the planner is heading for.
   - topic: /{ns}/vis/planning_global_path
+    ros1_topic: /{ros1_ns}/vis/planning_global_path
     type: visualization_msgs/msg/MarkerArray
     queue_size: 10
 
   # Markers at the vertices where planning failed. Published only on a failure,
   # so it costs nothing while things work.
   - topic: /{ns}/vis/planning_failed
+    ros1_topic: /{ros1_ns}/vis/planning_failed
     type: visualization_msgs/msg/MarkerArray
     queue_size: 10
 
   # The local navigation goal the planner is currently driving at.
   - topic: /{ns}/gbplanner/local_target_viz
+    ros1_topic: /{ros1_ns}/gbplanner/local_target_viz
     type: geometry_msgs/msg/PointStamped
     queue_size: 10
 
-  # Left out on purpose, all visualization_msgs/msg/MarkerArray -- uncomment
-  # what you need, no rebuild required:
+  # Left out on purpose -- uncomment what you need, no rebuild required. The
+  # ros1_topic line is not optional for any of them: without it the ROS 1 side
+  # would look for /robot0/... , which does not exist on the robot.
   #
-  #   vis/best_planning_paths   the candidates ref_path was chosen from
-  #   vis/volumetric_gains      per-viewpoint exploration gain (bound cube +
-  #                             the unknown voxels it would clear). The most
-  #                             informative display there is, and the most
-  #                             expensive to keep subscribed
-  #   vis/state_history         everywhere the robot has been; reveals loops
-  #   vis/sampler               valid/invalid samples, for a starved sampler
-  #   vis/planning_global_graph the global graph; a fog of vertices once big
+  #   vis/best_planning_paths    the candidates ref_path was chosen from
+  #   vis/volumetric_gains       per-viewpoint exploration gain. The most
+  #                              informative display there is, and the most
+  #                              expensive to keep subscribed
+  #   vis/state_history          everywhere the robot has been; reveals loops
+  #   vis/sampler                valid/invalid samples, for a starved sampler
+  #   vis/planning_global_graph  the global graph; a fog of vertices once big
+  #   pci_command_trajectory_vis the trajectory the PCI actually commanded
+  #                              (visualization_msgs/msg/MarkerArray)
+  #
+  # The command itself, /anymal/anymal/command/trajectory (the doubled
+  # namespace is real -- the PCI remaps command/trajectory to
+  # $(robot_name)/command/trajectory inside ns anymal), is deliberately NOT
+  # bridged. Every topic bridge is bidirectional, so it would also give
+  # anything on the ROS 2 side a direct path into the robot's controller:
+  #
+  #   - topic: /{ns}/command/trajectory
+  #     ros1_topic: /{ros1_ns}/{ros1_ns}/command/trajectory
+  #     type: trajectory_msgs/msg/MultiDOFJointTrajectory
+  #     queue_size: 10
   #
   # NOT bridgeable: gbplanner_node/mesh is voxblox_msgs/Mesh, and the bridge
   # only carries conversion factories for the standard packages plus
@@ -136,23 +155,24 @@ topics:
   # custom_msgs workspaces and rebuilding the image. Use
   # gbplanner_node/surface_pointcloud (sensor_msgs/msg/PointCloud2) instead if
   # the map itself is wanted on the ROS 2 side -- at the bandwidth that implies.
+  #
+  # The planner's *inputs* (odometry, lidar, elevation map, navigation goals)
+  # are not here either: on the robot they are native ROS 1 topics that
+  # gbplanner subscribes directly. Nothing on the ROS 2 side feeds the planner.
 
-# Every service below is hosted natively on the ROS 1 side -- the first four
-# by /{ns}/pci_general_ros_node, the two gbplanner ones by the gbplanner node
-# (confirmed via `rosservice info`), so they
-# belong under services_2_to_1: per ros1_bridge/include/ros1_bridge/factory.hpp,
-# service_bridge_2_to_1() creates a ROS 2 *server* (proxy) backed by a ROS 1
-# *client* -- i.e. it makes an existing ROS 1 server callable from ROS 2.
-# services_1_to_2 is the other way around (ROS 2 client + ROS 1 server
-# proxy) and requires the real server to already exist on the ROS 2 side,
-# which is NOT the case here.
+# Every service below is hosted natively on the ROS 1 side -- the first four by
+# /anymal/gbplanner_pci_anymal_ros_node, the four gbplanner ones by
+# /anymal/gbplanner_node -- so they belong under services_2_to_1: per
+# ros1_bridge/include/ros1_bridge/factory.hpp, service_bridge_2_to_1() creates a
+# ROS 2 *server* (proxy) backed by a ROS 1 *client*, i.e. it makes an existing
+# ROS 1 server callable from ROS 2. services_1_to_2 is the other way around and
+# would require the real server to already exist on the ROS 2 side, which is
+# never the case here.
 #
 # NOTE on "type" format: services_2_to_1 resolves the factory with
 # ros_id == "ros1" (see get_service_factory_*__srv__*.cpp), which matches
-# against the ROS 1-style string "pkg/TypeName" -- no "srv/" in the middle,
-# and exact ROS 1 case (e.g. the literal .srv filename for custom types).
-# This is different from services_1_to_2, which wants the ROS 2-style
-# "pkg/srv/TypeName".
+# against the ROS 1-style string "pkg/TypeName" -- no "srv/" in the middle, and
+# exact ROS 1 case (for custom types, the literal .srv filename).
 #
 # The ROS 2 *client* still uses the ROS 2 name of the same type, which for
 # custom types is the CamelCase one rosidl generates from the .srv filename:
@@ -161,30 +181,38 @@ topics:
 # ("planner_msgs/srv/pci_initialization" is rejected as an invalid type.)
 services_2_to_1:
   - service: /{ns}/planner_control_interface/std_srvs/automatic_planning
+    ros1_service: /{ros1_ns}/planner_control_interface/std_srvs/automatic_planning
     type: std_srvs/Trigger
 
   - service: /{ns}/pci_initialization_trigger
+    ros1_service: /{ros1_ns}/pci_initialization_trigger
     type: planner_msgs/pci_initialization
 
   - service: /{ns}/planner_control_interface/std_srvs/stop
+    ros1_service: /{ros1_ns}/planner_control_interface/std_srvs/stop
     type: std_srvs/Trigger
 
   - service: /{ns}/planner_control_interface/std_srvs/single_planning
+    ros1_service: /{ros1_ns}/planner_control_interface/std_srvs/single_planning
     type: std_srvs/Trigger
 
   # ROS 2 client side: planner_msgs/srv/PlannerGoToWaypoint
   - service: /{ns}/gbplanner/go_to_waypoint
+    ros1_service: /{ros1_ns}/gbplanner/go_to_waypoint
     type: planner_msgs/planner_go_to_waypoint
 
   - service: /{ns}/gbplanner/switch_operation_mode
+    ros1_service: /{ros1_ns}/gbplanner/switch_operation_mode
     type: std_srvs/SetBool
 
   # ROS 2 client side: planner_msgs/srv/PlannerGetFrontiers
   - service: /{ns}/gbplanner/get_frontiers
+    ros1_service: /{ros1_ns}/gbplanner/get_frontiers
     type: planner_msgs/planner_get_frontiers
 
   # ROS 2 client side: planner_msgs/srv/PlannerGetTargetCosts
   - service: /{ns}/gbplanner/get_target_costs
+    ros1_service: /{ros1_ns}/gbplanner/get_target_costs
     type: planner_msgs/planner_get_target_costs
 
 # services_1_to_2:
