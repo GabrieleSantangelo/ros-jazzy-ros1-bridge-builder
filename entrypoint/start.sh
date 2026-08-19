@@ -2,10 +2,12 @@
 # Entry point for the bridge container (see `make run`).
 #
 # Three processes are started:
-#   1. tf_static_repeater.py  -- merges /tf_static from every ROS 2 static
+#   1. a TF helper, picked by BRIDGE_TF_FLEET (see below): either
+#      tf_static_repeater.py, which merges /tf_static from every ROS 2 static
 #      broadcaster into one latched message, because the 2-to-1 bridge
 #      collapses them onto a single ROS 1 latch and would otherwise drop all
-#      but the last publisher's transforms.
+#      but the last publisher's transforms; or tf_fleet_relay.py, which does
+#      the mirror job for TF coming the other way off a real robot.
 #   2. parameter_bridge (services)  -- services_2_to_1 / services_1_to_2 only.
 #   3. parameter_bridge (topics)    -- topics only, runs in the foreground so
 #      the container lives and dies with it.
@@ -32,9 +34,26 @@ if [ ! -f "${CONFIG}" ]; then
     exit 1
 fi
 
+# TF helper. Which one depends on which way transforms flow, and the two must
+# not both run: they would each republish what the other emits on /tf_static.
+#
+#   BRIDGE_TF_FLEET=true   real robot. TF originates on ROS 1, already prefixed
+#                          per robot by tf_remapper_cpp, and arrives here on
+#                          /<ns>/tf. Relay it onto the /tf every tf2 listener
+#                          actually reads.
+#   unset/false            simulator. TF originates on ROS 2 and the 2-to-1
+#                          direction needs the static set merged first.
+#
+# bridge_topics.yaml has to agree: the fleet case bridges /{ns}/tf and
+# /{ns}/tf_static, the simulator case bridges /tf and /tf_static.
+if [ "${BRIDGE_TF_FLEET:-false}" = "true" ]; then
+    python3 "${ENTRYPOINT_DIR}/tf_fleet_relay.py" &
+else
+    python3 "${ENTRYPOINT_DIR}/tf_static_repeater.py" &
+fi
+
 # parameter_bridge reads its config from the ROS 1 parameter server, not from
 # a file, so the YAML has to be pushed there first.
-python3 "${ENTRYPOINT_DIR}/tf_static_repeater.py" &
 python3 "${ENTRYPOINT_DIR}/load_ros1_params.py" "${CONFIG}"
 
 # parameter_bridge's 3 positional arguments are the *names of the ROS 1

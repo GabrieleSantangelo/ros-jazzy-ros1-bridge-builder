@@ -43,19 +43,39 @@ topics:
     queue_size: 10
     when: sim_time
 
-  # /tf: ROS2 <-> ROS1. Global, never namespaced, always bridged.
+  # TF. Two mutually exclusive layouts -- pick the one matching your
+  # BRIDGE_TF_FLEET setting, they cannot both be listed.
+  #
+  # (a) SIMULATOR, BRIDGE_TF_FLEET unset/false. TF is born on the ROS 2 side,
+  # frames are unique because there is one simulated world, so /tf is global
+  # and never namespaced. Relies on tf_static_repeater.py (started by
+  # start.sh) to merge transforms from every ROS 2 static broadcaster into one
+  # latched message before they reach the 2-to-1 direction -- see the comment
+  # in that script for why a plain bridge drops all but the last publisher's
+  # frames.
   - topic: /tf
     type: tf2_msgs/msg/TFMessage
     queue_size: 100
 
-  # /tf_static: ROS2 <-> ROS1
-  # Relies on tf_static_repeater.py (started by start.sh) to merge transforms
-  # from every ROS 2 static broadcaster into one latched message before they
-  # reach the 2-to-1 direction -- see the comment in that script for why a
-  # plain bridge drops all but the last publisher's frames.
   - topic: /tf_static
     type: tf2_msgs/msg/TFMessage
     queue_size: 100
+
+  # (b) REAL ROBOT FLEET, BRIDGE_TF_FLEET=true. Every robot's low-level stack
+  # publishes the same bare frame names (world, body, os_lidar, ...), so
+  # merging their /tf as-is would put several robots' odom->base on one frame
+  # and tf2 would resolve whichever arrived last. tf_remapper_cpp on the robot
+  # republishes /tf onto /<ns>/tf with the frames prefixed; bridge that
+  # instead, and tf_fleet_relay.py puts it back on the /tf that every tf2
+  # listener reads. Swap the two entries above for these:
+  #
+  # - topic: /{ns}/tf
+  #   type: tf2_msgs/msg/TFMessage
+  #   queue_size: 100
+  #
+  # - topic: /{ns}/tf_static
+  #   type: tf2_msgs/msg/TFMessage
+  #   queue_size: 100
 
   # Sensor data: ROS2 -> ROS1
   - topic: /{ns}/sensor_measurements/lidar/points
