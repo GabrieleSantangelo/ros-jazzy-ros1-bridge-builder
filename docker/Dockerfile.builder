@@ -50,20 +50,43 @@ RUN apt-get update; \
 
 
 ###########################
-# 5.) Install ROS1 Noetic desktop
-# (Currently, ppa contains AMD64 builds only)
+# 5.) Install ROS1 Noetic
+# (ppa ships AMD64 binaries only; ARM64 rebuilds them from the ppa sources)
 ###########################
 
 RUN apt-get update; \
     apt-get -y install software-properties-common; \
     rm -rf /var/lib/apt/lists/*
-RUN add-apt-repository ppa:ros-for-jammy/noble
-RUN apt-get update; \
-    apt -y install ros-noetic-desktop; \
-    rm -rf /var/lib/apt/lists/*
+# -s also enables deb-src, which the ARM64 source rebuild below needs.
+RUN add-apt-repository -y -s ppa:ros-for-jammy/noble
 
-# fix ARM64 pkgconfig path issue -- Fix provided by ambrosekwok 
-RUN if [[ $(uname -m) = "arm64" || $(uname -m) = "aarch64" ]]; then                     \
+# The PPA publishes amd64 binaries only (276 packages for amd64, 14 arch-any
+# leftovers for arm64), so on a Jetson `apt install ros-noetic-desktop` fails
+# with "Unable to locate package". Its 235 *source* packages are architecture
+# "any" and already carry the Noble port, so on arm64 we rebuild ros-base +
+# common_msgs + tf2_msgs from those sources instead. See
+# docker/build-noetic-from-source.sh for why that subset and not desktop.
+COPY docker/build-noetic-from-source.sh /tmp/build-noetic-from-source.sh
+COPY docker/noetic-arm64-build-order.txt /tmp/noetic-arm64-build-order.txt
+# The cache mount holds the .debs we produce. Editing the script or the package
+# list busts this layer, and without the cache that means recompiling all 80
+# packages from scratch; with it, a rerun reinstalls what is already built and
+# resumes at the package that failed.
+RUN --mount=type=cache,target=/opt/noetic-localrepo,sharing=locked                     \
+    if [[ $(dpkg --print-architecture) = "amd64" ]]; then                              \
+      apt-get update;                                                                  \
+      apt -y install ros-noetic-desktop;                                               \
+      rm -rf /var/lib/apt/lists/*;                                                      \
+    else                                                                               \
+      /tmp/build-noetic-from-source.sh /tmp/noetic-arm64-build-order.txt;              \
+    fi
+
+# The amd64 debs ship pkgconfig files under the x86_64 triplet, which breaks the
+# bridge's CMake probing when those debs are unpacked on ARM64. Packages we build
+# natively already land in the aarch64 triplet, so only copy when the x86_64 dir
+# is actually there.
+RUN if [[ $(uname -m) = "arm64" || $(uname -m) = "aarch64" ]] &&                        \
+       [[ -d /usr/lib/x86_64-linux-gnu/pkgconfig ]]; then                               \
       cp /usr/lib/x86_64-linux-gnu/pkgconfig/* /usr/lib/aarch64-linux-gnu/pkgconfig/;   \
     fi
 
@@ -141,7 +164,8 @@ RUN                                                                             
 # 9.) Pack all ROS1 dependent libraries
 ###########################
 # fix ARM64 pkgconfig path issue -- Fix provided by ambrosekwok 
-RUN if [[ $(uname -m) = "arm64" || $(uname -m) = "aarch64" ]]; then                    \
+RUN if [[ $(uname -m) = "arm64" || $(uname -m) = "aarch64" ]] &&                       \
+       [[ -d /usr/lib/x86_64-linux-gnu/pkgconfig ]]; then                              \
       cp /usr/lib/x86_64-linux-gnu/pkgconfig/* /usr/lib/aarch64-linux-gnu/pkgconfig/;  \
     fi
 
